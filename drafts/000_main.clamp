@@ -1,0 +1,2 @@
+(def main:(-> :Void) (lambda ()
+  (println "Hello")))

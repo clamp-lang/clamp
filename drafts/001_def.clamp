@@ -1,0 +1,4 @@
+(def x:Int 404)
+
+(def main:(-> :Void) (lambda ()
+  (println x)))

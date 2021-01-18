@@ -1,0 +1,22 @@
+// All add functions are typed as (-> :Int :Int :Int)
+
+(fn add1:(-> :Int :Int :Int) (a:Int b:Int :Int)
+  (+ a b)
+)
+
+(fn add2:(-> :Int :Int :Int) (a b)
+  (+ a b)
+)
+
+(fn add3 (a:Int b:Int :Int)
+  (+ a b)
+)
+
+(fn add4 (a b)
+  (+ a b)
+)
+
+// main:(-> :Void :Void)
+(fn main ()
+  (println (add 1 2))
+)
