@@ -1,2 +1,4 @@
-(def main:(-> :Void) (lambda ()
-  (println "Hello")))
+(: main (-> :Void))
+(fn main ()
+  (println "Hello")
+)
