@@ -6,7 +6,7 @@ use nom::{
     error::VerboseError,
     multi::many0,
     number::complete::float,
-    sequence::{delimited, preceded, terminated, tuple},
+    sequence::{delimited, preceded, terminated},
     IResult,
 };
 
@@ -23,7 +23,6 @@ pub enum Expr {
     Literal(LitKind),
     Symbol(String),
     List(Vec<Expr>),
-    Application(Box<Expr>, Vec<Expr>),
 }
 
 fn parse_number<'a>(i: &'a str) -> IResult<&'a str, LitKind, VerboseError<&'a str>> {
@@ -55,44 +54,24 @@ fn parse_literal<'a>(i: &'a str) -> IResult<&'a str, Expr, VerboseError<&'a str>
 }
 
 fn parse_symbol<'a>(i: &'a str) -> IResult<&'a str, Expr, VerboseError<&'a str>> {
-    map(
-        terminated(alpha1, multispace0),
-        |s: &'a str| Expr::Symbol(s.to_string()),
-    )(i)
+    map(terminated(alpha1, multispace0), |s: &'a str| {
+        Expr::Symbol(s.to_string())
+    })(i)
 }
 
 fn parse_list<'a>(i: &'a str) -> IResult<&'a str, Expr, VerboseError<&'a str>> {
     map(
-        preceded(
-            tag("'"),
-            cut(delimited(
-                char('('),
-                preceded(multispace0, many0(parse_expr)),
-                cut(preceded(multispace0, char(')'))),
-            )),
+        delimited(
+            char('('),
+            preceded(multispace0, many0(parse_expr)),
+            cut(preceded(multispace0, char(')'))),
         ),
         |exprs| Expr::List(exprs),
     )(i)
 }
 
-fn parse_application<'a>(i: &'a str) -> IResult<&'a str, Expr, VerboseError<&'a str>> {
-    delimited(
-        char('('),
-        preceded(
-            multispace0,
-            map(tuple((parse_expr, many0(parse_expr))), |(head, tail)| {
-                Expr::Application(Box::new(head), tail)
-            }),
-        ),
-        cut(preceded(multispace0, char(')'))),
-    )(i)
-}
-
 fn parse_expr<'a>(i: &'a str) -> IResult<&'a str, Expr, VerboseError<&'a str>> {
-    preceded(
-        multispace0,
-        alt((parse_literal, parse_application, parse_list, parse_symbol)),
-    )(i)
+    preceded(multispace0, alt((parse_literal, parse_list, parse_symbol)))(i)
 }
 
 pub fn parse<'a>(i: &'a str) -> IResult<&'a str, Vec<Expr>, VerboseError<&'a str>> {
@@ -102,8 +81,8 @@ pub fn parse<'a>(i: &'a str) -> IResult<&'a str, Vec<Expr>, VerboseError<&'a str
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_application, parse_bool, parse_expr, parse_list, parse_literal, parse_number,
-        parse_string, parse_symbol, Expr, LitKind,
+        parse_bool, parse_expr, parse_list, parse_literal, parse_number, parse_string,
+        parse_symbol, Expr, LitKind,
     };
 
     #[test]
@@ -165,7 +144,7 @@ mod tests {
     #[test]
     fn test_parse_list() {
         assert_eq!(
-            parse_list("'(\"hello\" \"world\")"),
+            parse_list("(\"hello\" \"world\")"),
             Ok((
                 "",
                 Expr::List(vec![
@@ -173,18 +152,18 @@ mod tests {
                     Expr::Literal(LitKind::Str("world".to_string())),
                 ]),
             ))
-        )
-    }
-
-    #[test]
-    fn test_parse_application() {
+        );
         assert_eq!(
-            parse_application("(sayHello)"),
+            parse_list("(\"hello\" \"world\" 100)"),
             Ok((
                 "",
-                Expr::Application(Box::new(Expr::Symbol("sayHello".to_string())), vec![],),
+                Expr::List(vec![
+                    Expr::Literal(LitKind::Str("hello".to_string())),
+                    Expr::Literal(LitKind::Str("world".to_string())),
+                    Expr::Literal(LitKind::Integer(100)),
+                ]),
             ))
-        )
+        );
     }
 
     #[test]
@@ -205,26 +184,20 @@ mod tests {
             parse_expr("(if (equal 3 (add 1 2)) \"OK\" \"NG\")"),
             Ok((
                 "",
-                Expr::Application(
-                    Box::new(Expr::Symbol("if".to_string())),
-                    vec![
-                        Expr::Application(
-                            Box::new(Expr::Symbol("equal".to_string())),
-                            vec![
-                                Expr::Literal(LitKind::Integer(3)),
-                                Expr::Application(
-                                    Box::new(Expr::Symbol("add".to_string())),
-                                    vec![
-                                        Expr::Literal(LitKind::Integer(1)),
-                                        Expr::Literal(LitKind::Integer(2)),
-                                    ],
-                                ),
-                            ],
-                        ),
-                        Expr::Literal(LitKind::Str("OK".to_string())),
-                        Expr::Literal(LitKind::Str("NG".to_string())),
-                    ]
-                )
+                Expr::List(vec![
+                    Expr::Symbol("if".to_string()),
+                    Expr::List(vec![
+                        Expr::Symbol("equal".to_string()),
+                        Expr::Literal(LitKind::Integer(3)),
+                        Expr::List(vec![
+                            Expr::Symbol("add".to_string()),
+                            Expr::Literal(LitKind::Integer(1)),
+                            Expr::Literal(LitKind::Integer(2)),
+                        ],),
+                    ],),
+                    Expr::Literal(LitKind::Str("OK".to_string())),
+                    Expr::Literal(LitKind::Str("NG".to_string())),
+                ])
             ))
         );
     }
@@ -233,28 +206,19 @@ mod tests {
     fn test_parse() {
         assert_eq!(
             parse_expr("(sayHello)"),
+            Ok(("", Expr::List(vec![Expr::Symbol("sayHello".to_string())])))
+        );
+        assert_eq!(
+            parse_expr("(sayHello (quote (\"clamp\")))"),
             Ok((
                 "",
-                Expr::Application(
-                    Box::new(Expr::Symbol("if".to_string())),
-                    vec![
-                        Expr::Application(
-                            Box::new(Expr::Symbol("equal".to_string())),
-                            vec![
-                                Expr::Literal(LitKind::Integer(3)),
-                                Expr::Application(
-                                    Box::new(Expr::Symbol("add".to_string())),
-                                    vec![
-                                        Expr::Literal(LitKind::Integer(1)),
-                                        Expr::Literal(LitKind::Integer(2)),
-                                    ],
-                                ),
-                            ],
-                        ),
-                        Expr::Literal(LitKind::Str("OK".to_string())),
-                        Expr::Literal(LitKind::Str("NG".to_string())),
-                    ]
-                )
+                Expr::List(vec![
+                    Expr::Symbol("sayHello".to_string()),
+                    Expr::List(vec![
+                        Expr::Symbol("quote".to_string()),
+                        Expr::List(vec![Expr::Literal(LitKind::Str("clamp".to_string())),]),
+                    ])
+                ])
             ))
         );
     }
