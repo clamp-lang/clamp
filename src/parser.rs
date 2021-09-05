@@ -1,12 +1,12 @@
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
-    character::complete::{alpha1, char, multispace0},
+    character::complete::{alpha1, char, multispace0, multispace1},
     combinator::{cut, map},
     error::VerboseError,
     multi::many0,
     number::complete::float,
-    sequence::{delimited, preceded, terminated},
+    sequence::{delimited, preceded, terminated, tuple},
     IResult,
 };
 
@@ -23,6 +23,10 @@ pub enum Expr {
     Literal(LitKind),
     Symbol(String),
     List(Vec<Expr>),
+    Fn(Vec<Expr>, Vec<Expr>),
+    Def(Box<Expr>, Box<Expr>),
+    TypeDef(Box<Expr>, Box<Expr>),
+    TypeApplication(Box<Expr>, Box<Expr>),
 }
 
 fn parse_number<'a>(i: &'a str) -> IResult<&'a str, LitKind, VerboseError<&'a str>> {
@@ -70,8 +74,95 @@ fn parse_list<'a>(i: &'a str) -> IResult<&'a str, Expr, VerboseError<&'a str>> {
     )(i)
 }
 
+fn parse_args<'a>(i: &'a str) -> IResult<&'a str, Vec<Expr>, VerboseError<&'a str>> {
+    delimited(
+        char('('),
+        preceded(multispace0, many0(parse_symbol)),
+        cut(preceded(multispace0, char(')'))),
+    )(i)
+}
+
+fn parse_fn<'a>(i: &'a str) -> IResult<&'a str, Expr, VerboseError<&'a str>> {
+    map(
+        delimited(
+            char('('),
+            tuple((
+                tag("fn"),
+                multispace1,
+                parse_args,
+                multispace0,
+                many0(parse_expr),
+            )),
+            cut(preceded(multispace0, char(')'))),
+        ),
+        |exprs| Expr::Fn(exprs.2, exprs.4),
+    )(i)
+}
+
+fn parse_def<'a>(i: &'a str) -> IResult<&'a str, Expr, VerboseError<&'a str>> {
+    map(
+        delimited(
+            char('('),
+            tuple((
+                tag("def"),
+                multispace1,
+                parse_symbol,
+                multispace0,
+                parse_expr,
+            )),
+            cut(preceded(multispace0, char(')'))),
+        ),
+        |exprs| Expr::Def(Box::new(exprs.2), Box::new(exprs.4)),
+    )(i)
+}
+
+fn parse_type_def<'a>(i: &'a str) -> IResult<&'a str, Expr, VerboseError<&'a str>> {
+    map(
+        delimited(
+            char('('),
+            tuple((
+                tag("type"),
+                multispace0,
+                parse_symbol,
+                multispace0,
+                parse_expr,
+            )),
+            cut(preceded(multispace0, char(')'))),
+        ),
+        |exprs| Expr::TypeDef(Box::new(exprs.2), Box::new(exprs.4)),
+    )(i)
+}
+
+fn parse_type_application<'a>(i: &'a str) -> IResult<&'a str, Expr, VerboseError<&'a str>> {
+    map(
+        delimited(
+            char('('),
+            tuple((
+                char(':'),
+                multispace0,
+                parse_symbol,
+                multispace0,
+                parse_expr,
+            )),
+            cut(preceded(multispace0, char(')'))),
+        ),
+        |exprs| Expr::TypeApplication(Box::new(exprs.2), Box::new(exprs.4)),
+    )(i)
+}
+
 fn parse_expr<'a>(i: &'a str) -> IResult<&'a str, Expr, VerboseError<&'a str>> {
-    preceded(multispace0, alt((parse_literal, parse_list, parse_symbol)))(i)
+    preceded(
+        multispace0,
+        alt((
+            parse_literal,
+            parse_fn,
+            parse_type_def,
+            parse_def,
+            parse_type_application,
+            parse_list,
+            parse_symbol,
+        )),
+    )(i)
 }
 
 pub fn parse<'a>(i: &'a str) -> IResult<&'a str, Vec<Expr>, VerboseError<&'a str>> {
@@ -81,8 +172,8 @@ pub fn parse<'a>(i: &'a str) -> IResult<&'a str, Vec<Expr>, VerboseError<&'a str
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_bool, parse_expr, parse_list, parse_literal, parse_number, parse_string,
-        parse_symbol, Expr, LitKind,
+        parse_bool, parse_def, parse_expr, parse_fn, parse_list, parse_literal, parse_number,
+        parse_string, parse_symbol, parse_type_application, parse_type_def, Expr, LitKind,
     };
 
     #[test]
@@ -175,6 +266,83 @@ mod tests {
         assert_eq!(
             parse_symbol("println \"Hello World\""),
             Ok(("\"Hello World\"", Expr::Symbol("println".to_string())))
+        );
+    }
+
+    #[test]
+    fn test_parse_fn() {
+        assert_eq!(
+            parse_fn("(fn (name) (print \"Hello\" name))"),
+            Ok((
+                "",
+                Expr::Fn(
+                    vec![Expr::Symbol("name".to_string())],
+                    vec![Expr::List(vec![
+                        Expr::Symbol("print".to_string()),
+                        Expr::Literal(LitKind::Str("Hello".to_string())),
+                        Expr::Symbol("name".to_string()),
+                    ])]
+                )
+            ))
+        );
+    }
+
+    #[test]
+    fn test_parse_def() {
+        assert_eq!(
+            parse_def("(def point 1)"),
+            Ok((
+                "",
+                Expr::Def(
+                    Box::new(Expr::Symbol("point".to_string())),
+                    Box::new(Expr::Literal(LitKind::Integer(1)))
+                )
+            ))
+        );
+        assert_eq!(
+            parse_def("(def sayHello (fn (name) (print \"Hello\" name)))"),
+            Ok((
+                "",
+                Expr::Def(
+                    Box::new(Expr::Symbol("sayHello".to_string())),
+                    Box::new(Expr::Fn(
+                        vec![Expr::Symbol("name".to_string())],
+                        vec![Expr::List(vec![
+                            Expr::Symbol("print".to_string()),
+                            Expr::Literal(LitKind::Str("Hello".to_string())),
+                            Expr::Symbol("name".to_string()),
+                        ])]
+                    ))
+                )
+            ))
+        );
+    }
+
+    #[test]
+    fn test_parse_type_def() {
+        assert_eq!(
+            parse_type_def("(type Name string)"),
+            Ok((
+                "",
+                Expr::TypeDef(
+                    Box::new(Expr::Symbol("Name".to_string())),
+                    Box::new(Expr::Symbol("string".to_string()))
+                )
+            ))
+        );
+    }
+
+    #[test]
+    fn test_parse_type_application() {
+        assert_eq!(
+            parse_type_application("(: point Point)"),
+            Ok((
+                "",
+                Expr::TypeApplication(
+                    Box::new(Expr::Symbol("point".to_string())),
+                    Box::new(Expr::Symbol("Point".to_string()))
+                )
+            ))
         );
     }
 
