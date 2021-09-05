@@ -5,4 +5,4 @@ authors = ["Takeshi Tsukamoto <dev@itome.team>"]
 edition = "2018"
 
 [dependencies]
-nom = "6.0.1"
+nom = "7.0.0"
