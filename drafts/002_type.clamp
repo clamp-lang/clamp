@@ -1,16 +1,18 @@
-(def GeoPoint (structure
-  latitude:Int
-  logitude:Int
+(type GeoPoint (struct
+  latitude Int
+  logitude Int
 ))
 
-(def point:GeoPoint
+(: point GeoPoint)
+(def point
   (GeoPoint
-    latitude: 35.658034
-    logitude: 139.701636
+    latitude 35.658034
+    logitude 139.701636
   )
 )
 
-(def main:(-> :Void) (lambda ()
-  (println point.latitude)
-  (println point.longitude)
-))
+(: main (-> void))
+(def (main ())
+  (println (GeoPoint.latitude point))
+  (println (GeoPoint.longitude point))
+)
