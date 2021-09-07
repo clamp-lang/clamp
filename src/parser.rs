@@ -19,11 +19,26 @@ pub enum LitKind {
 }
 
 #[derive(PartialEq, Debug)]
+pub enum TypeKind {
+    I32,
+    I64,
+    U32,
+    U64,
+    F32,
+    F64,
+    Bool,
+    Char,
+    String,
+}
+
+#[derive(PartialEq, Debug)]
 pub enum Expr {
     Literal(LitKind),
+    Type(TypeKind),
     Symbol(String),
     List(Vec<Expr>),
     Fn(Vec<Expr>, Vec<Expr>),
+    Struct(Vec<Expr>),
     Def(Box<Expr>, Box<Expr>),
     TypeDef(Box<Expr>, Box<Expr>),
     TypeApplication(Box<Expr>, Box<Expr>),
@@ -55,6 +70,20 @@ fn parse_bool<'a>(i: &'a str) -> IResult<&'a str, LitKind, VerboseError<&'a str>
 
 fn parse_literal<'a>(i: &'a str) -> IResult<&'a str, Expr, VerboseError<&'a str>> {
     map(alt((parse_number, parse_string, parse_bool)), Expr::Literal)(i)
+}
+
+fn parse_type<'a>(i: &'a str) -> IResult<&'a str, Expr, VerboseError<&'a str>> {
+    alt((
+        map(tag("i32"), |_| Expr::Type(TypeKind::I32)),
+        map(tag("i64"), |_| Expr::Type(TypeKind::I64)),
+        map(tag("u32"), |_| Expr::Type(TypeKind::U32)),
+        map(tag("u64"), |_| Expr::Type(TypeKind::U64)),
+        map(tag("f32"), |_| Expr::Type(TypeKind::F32)),
+        map(tag("f64"), |_| Expr::Type(TypeKind::F64)),
+        map(tag("char"), |_| Expr::Type(TypeKind::Char)),
+        map(tag("string"), |_| Expr::Type(TypeKind::String)),
+        map(tag("bool"), |_| Expr::Type(TypeKind::Bool)),
+    ))(i)
 }
 
 fn parse_symbol<'a>(i: &'a str) -> IResult<&'a str, Expr, VerboseError<&'a str>> {
@@ -96,6 +125,17 @@ fn parse_fn<'a>(i: &'a str) -> IResult<&'a str, Expr, VerboseError<&'a str>> {
             cut(preceded(multispace0, char(')'))),
         ),
         |exprs| Expr::Fn(exprs.2, exprs.4),
+    )(i)
+}
+
+fn parse_struct<'a>(i: &'a str) -> IResult<&'a str, Expr, VerboseError<&'a str>> {
+    map(
+        delimited(
+            char('('),
+            tuple((tag("struct"), many0(parse_expr))),
+            cut(preceded(multispace0, char(')'))),
+        ),
+        |exprs| Expr::Struct(exprs.1),
     )(i)
 }
 
@@ -155,7 +195,9 @@ fn parse_expr<'a>(i: &'a str) -> IResult<&'a str, Expr, VerboseError<&'a str>> {
         multispace0,
         alt((
             parse_literal,
+            parse_type,
             parse_fn,
+            parse_struct,
             parse_type_def,
             parse_def,
             parse_type_application,
@@ -173,7 +215,8 @@ pub fn parse<'a>(i: &'a str) -> IResult<&'a str, Vec<Expr>, VerboseError<&'a str
 mod tests {
     use super::{
         parse_bool, parse_def, parse_expr, parse_fn, parse_list, parse_literal, parse_number,
-        parse_string, parse_symbol, parse_type_application, parse_type_def, Expr, LitKind,
+        parse_string, parse_struct, parse_symbol, parse_type, parse_type_application,
+        parse_type_def, Expr, LitKind, TypeKind,
     };
 
     #[test]
@@ -233,6 +276,19 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_type() {
+        assert_eq!(parse_type("i32"), Ok(("", Expr::Type(TypeKind::I32))));
+        assert_eq!(parse_type("i64"), Ok(("", Expr::Type(TypeKind::I64))));
+        assert_eq!(parse_type("u32"), Ok(("", Expr::Type(TypeKind::U32))));
+        assert_eq!(parse_type("u64"), Ok(("", Expr::Type(TypeKind::U64))));
+        assert_eq!(parse_type("f32"), Ok(("", Expr::Type(TypeKind::F32))));
+        assert_eq!(parse_type("f64"), Ok(("", Expr::Type(TypeKind::F64))));
+        assert_eq!(parse_type("char"), Ok(("", Expr::Type(TypeKind::Char))));
+        assert_eq!(parse_type("string"), Ok(("", Expr::Type(TypeKind::String))));
+        assert_eq!(parse_type("bool"), Ok(("", Expr::Type(TypeKind::Bool))));
+    }
+
+    #[test]
     fn test_parse_list() {
         assert_eq!(
             parse_list("(\"hello\" \"world\")"),
@@ -288,6 +344,22 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_struct() {
+        assert_eq!(
+            parse_struct("(struct width i32 height i32)"),
+            Ok((
+                "",
+                Expr::Struct(vec![
+                    Expr::Symbol("width".to_string()),
+                    Expr::Type(TypeKind::I32),
+                    Expr::Symbol("height".to_string()),
+                    Expr::Type(TypeKind::I32),
+                ])
+            ))
+        );
+    }
+
+    #[test]
     fn test_parse_def() {
         assert_eq!(
             parse_def("(def point 1)"),
@@ -326,7 +398,7 @@ mod tests {
                 "",
                 Expr::TypeDef(
                     Box::new(Expr::Symbol("Name".to_string())),
-                    Box::new(Expr::Symbol("string".to_string()))
+                    Box::new(Expr::Type(TypeKind::String))
                 )
             ))
         );
