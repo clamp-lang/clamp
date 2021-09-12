@@ -1,6 +1,6 @@
 (type VoidCallback (-> void))
 
 (: main VoidCallback)
-(def (main ())
+(def main (fn ()
   (println "Hello")
-)
+))

@@ -5,7 +5,7 @@ mod parser;
 use crate::parser::parse;
 
 fn main() {
-    let code = "(fn hello '() (println \"Hello World\")) (export hello)";
+    let code = "(def hello (fn (name) (print \"Hello\" name)))";
     let ast = parse(code);
     println!("{:?}", ast);
 }

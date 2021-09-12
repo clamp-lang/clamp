@@ -1,6 +1,6 @@
-(: x Int)
+(: x i32)
 (def x 404)
 
 (: main (-> i32 i32 void))
-(def main (lambda ()
+(def main (fn ()
   (println x)))

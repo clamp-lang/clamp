@@ -1,7 +1,10 @@
 use nom::{
     branch::alt,
-    bytes::complete::{tag, take_until},
-    character::complete::{alpha1, char, multispace0, multispace1},
+    bytes::complete::{tag, take_until, take_while1},
+    character::{
+        complete::{char, multispace0, multispace1},
+        is_alphabetic,
+    },
     combinator::{cut, map},
     error::VerboseError,
     multi::many0,
@@ -29,6 +32,7 @@ pub enum TypeKind {
     Bool,
     Char,
     String,
+    Void,
 }
 
 #[derive(PartialEq, Debug)]
@@ -83,13 +87,15 @@ fn parse_type<'a>(i: &'a str) -> IResult<&'a str, Expr, VerboseError<&'a str>> {
         map(tag("char"), |_| Expr::Type(TypeKind::Char)),
         map(tag("string"), |_| Expr::Type(TypeKind::String)),
         map(tag("bool"), |_| Expr::Type(TypeKind::Bool)),
+        map(tag("void"), |_| Expr::Type(TypeKind::Void)),
     ))(i)
 }
 
 fn parse_symbol<'a>(i: &'a str) -> IResult<&'a str, Expr, VerboseError<&'a str>> {
-    map(terminated(alpha1, multispace0), |s: &'a str| {
-        Expr::Symbol(s.to_string())
-    })(i)
+    map(
+        take_while1(|c| is_alphabetic(c as u8) || ".-><!@#$%^&*=+/\\".contains(c)),
+        |s: &'a str| Expr::Symbol(s.to_string()),
+    )(i)
 }
 
 fn parse_list<'a>(i: &'a str) -> IResult<&'a str, Expr, VerboseError<&'a str>> {
@@ -208,14 +214,16 @@ fn parse_expr<'a>(i: &'a str) -> IResult<&'a str, Expr, VerboseError<&'a str>> {
 }
 
 pub fn parse<'a>(i: &'a str) -> IResult<&'a str, Vec<Expr>, VerboseError<&'a str>> {
-    many0(parse_expr)(i)
+    terminated(many0(parse_expr), multispace0)(i)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::vec;
+
     use super::{
-        parse_bool, parse_def, parse_expr, parse_fn, parse_list, parse_literal, parse_number,
-        parse_string, parse_struct, parse_symbol, parse_type, parse_type_application,
+        parse, parse_bool, parse_def, parse_expr, parse_fn, parse_list, parse_literal,
+        parse_number, parse_string, parse_struct, parse_symbol, parse_type, parse_type_application,
         parse_type_def, Expr, LitKind, TypeKind,
     };
 
@@ -286,6 +294,7 @@ mod tests {
         assert_eq!(parse_type("char"), Ok(("", Expr::Type(TypeKind::Char))));
         assert_eq!(parse_type("string"), Ok(("", Expr::Type(TypeKind::String))));
         assert_eq!(parse_type("bool"), Ok(("", Expr::Type(TypeKind::Bool))));
+        assert_eq!(parse_type("void"), Ok(("", Expr::Type(TypeKind::Void))));
     }
 
     #[test]
@@ -317,11 +326,15 @@ mod tests {
     fn test_parse_symbol() {
         assert_eq!(
             parse_symbol("fn sayHello"),
-            Ok(("sayHello", Expr::Symbol("fn".to_string())))
+            Ok((" sayHello", Expr::Symbol("fn".to_string())))
         );
         assert_eq!(
             parse_symbol("println \"Hello World\""),
-            Ok(("\"Hello World\"", Expr::Symbol("println".to_string())))
+            Ok((" \"Hello World\"", Expr::Symbol("println".to_string())))
+        );
+        assert_eq!(
+            parse_symbol("-> i32 void"),
+            Ok((" i32 void", Expr::Symbol("->".to_string())))
         );
     }
 
@@ -459,6 +472,172 @@ mod tests {
                         Expr::List(vec![Expr::Literal(LitKind::Str("clamp".to_string())),]),
                     ])
                 ])
+            ))
+        );
+
+        assert_eq!(
+            parse(
+                "
+(: x i32)
+(def x 404)
+
+(: main (-> i32 i32 void))
+(def main (fn ()
+  (println x)))
+"
+            ),
+            Ok((
+                "",
+                vec![
+                    Expr::TypeApplication(
+                        Box::new(Expr::Symbol("x".to_string())),
+                        Box::new(Expr::Type(TypeKind::I32))
+                    ),
+                    Expr::Def(
+                        Box::new(Expr::Symbol("x".to_string())),
+                        Box::new(Expr::Literal(LitKind::Integer(404)))
+                    ),
+                    Expr::TypeApplication(
+                        Box::new(Expr::Symbol("main".to_string())),
+                        Box::new(Expr::List(vec![
+                            Expr::Symbol("->".to_string()),
+                            Expr::Type(TypeKind::I32),
+                            Expr::Type(TypeKind::I32),
+                            Expr::Type(TypeKind::Void),
+                        ]))
+                    ),
+                    Expr::Def(
+                        Box::new(Expr::Symbol("main".to_string())),
+                        Box::new(Expr::Fn(
+                            vec![],
+                            vec![Expr::List(vec![
+                                Expr::Symbol("println".to_string()),
+                                Expr::Symbol("x".to_string())
+                            ])]
+                        ))
+                    ),
+                ],
+            )),
+        );
+
+        assert_eq!(
+            parse(
+                "
+(type VoidCallback (-> void))
+
+(: main VoidCallback)
+(def main (fn ()
+  (println \"Hello\")
+))
+"
+            ),
+            Ok((
+                "",
+                vec![
+                    Expr::TypeDef(
+                        Box::new(Expr::Symbol("VoidCallback".to_string())),
+                        Box::new(Expr::List(vec![
+                            Expr::Symbol("->".to_string()),
+                            Expr::Type(TypeKind::Void)
+                        ]))
+                    ),
+                    Expr::TypeApplication(
+                        Box::new(Expr::Symbol("main".to_string())),
+                        Box::new(Expr::Symbol("VoidCallback".to_string()))
+                    ),
+                    Expr::Def(
+                        Box::new(Expr::Symbol("main".to_string())),
+                        Box::new(Expr::Fn(
+                            vec![],
+                            vec![Expr::List(vec![
+                                Expr::Symbol("println".to_string()),
+                                Expr::Literal(LitKind::Str("Hello".to_string())),
+                            ])],
+                        ))
+                    ),
+                ],
+            ))
+        );
+
+        assert_eq!(
+            parse(
+                "
+(type GeoPoint (struct
+  latitude i32
+  longitude i32
+))
+
+(: point GeoPoint)
+(def point
+  (GeoPoint
+    latitude 35.658034
+    longitude 139.701636
+  )
+)
+
+(: main (-> void))
+(def main (fn ()
+  (println (GeoPoint.latitude point))
+  (println (GeoPoint.longitude point))
+))
+"
+            ),
+            Ok((
+                "",
+                vec![
+                    Expr::TypeDef(
+                        Box::new(Expr::Symbol("GeoPoint".to_string())),
+                        Box::new(Expr::Struct(vec![
+                            Expr::Symbol("latitude".to_string()),
+                            Expr::Type(TypeKind::I32),
+                            Expr::Symbol("longitude".to_string()),
+                            Expr::Type(TypeKind::I32),
+                        ])),
+                    ),
+                    Expr::TypeApplication(
+                        Box::new(Expr::Symbol("point".to_string())),
+                        Box::new(Expr::Symbol("GeoPoint".to_string())),
+                    ),
+                    Expr::Def(
+                        Box::new(Expr::Symbol("point".to_string())),
+                        Box::new(Expr::List(vec![
+                            Expr::Symbol("GeoPoint".to_string()),
+                            Expr::Symbol("latitude".to_string()),
+                            Expr::Literal(LitKind::Float(35.658034)),
+                            Expr::Symbol("longitude".to_string()),
+                            Expr::Literal(LitKind::Float(139.701636)),
+                        ]))
+                    ),
+                    Expr::TypeApplication(
+                        Box::new(Expr::Symbol("main".to_string())),
+                        Box::new(Expr::List(vec![
+                            Expr::Symbol("->".to_string()),
+                            Expr::Type(TypeKind::Void),
+                        ]))
+                    ),
+                    Expr::Def(
+                        Box::new(Expr::Symbol("main".to_string())),
+                        Box::new(Expr::Fn(
+                            vec![],
+                            vec![
+                                Expr::List(vec![
+                                    Expr::Symbol("println".to_string()),
+                                    Expr::List(vec![
+                                        Expr::Symbol("GeoPoint.latitude".to_string()),
+                                        Expr::Symbol("point".to_string()),
+                                    ]),
+                                ]),
+                                Expr::List(vec![
+                                    Expr::Symbol("println".to_string()),
+                                    Expr::List(vec![
+                                        Expr::Symbol("GeoPoint.longitude".to_string()),
+                                        Expr::Symbol("point".to_string()),
+                                    ]),
+                                ]),
+                            ],
+                        ))
+                    ),
+                ]
             ))
         );
     }
