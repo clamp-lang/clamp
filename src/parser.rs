@@ -109,14 +109,6 @@ fn parse_list<'a>(i: &'a str) -> IResult<&'a str, Expr, VerboseError<&'a str>> {
     )(i)
 }
 
-fn parse_args<'a>(i: &'a str) -> IResult<&'a str, Vec<Expr>, VerboseError<&'a str>> {
-    delimited(
-        char('('),
-        preceded(multispace0, many0(parse_symbol)),
-        cut(preceded(multispace0, char(')'))),
-    )(i)
-}
-
 fn parse_fn<'a>(i: &'a str) -> IResult<&'a str, Expr, VerboseError<&'a str>> {
     map(
         delimited(
@@ -124,7 +116,11 @@ fn parse_fn<'a>(i: &'a str) -> IResult<&'a str, Expr, VerboseError<&'a str>> {
             tuple((
                 tag("fn"),
                 multispace1,
-                parse_args,
+                delimited(
+                    char('('),
+                    preceded(multispace0, many0(parse_expr)),
+                    cut(preceded(multispace0, char(')'))),
+                ),
                 multispace0,
                 many0(parse_expr),
             )),
@@ -350,6 +346,24 @@ mod tests {
                         Expr::Symbol("print".to_string()),
                         Expr::Literal(LitKind::Str("Hello".to_string())),
                         Expr::Symbol("name".to_string()),
+                    ])]
+                )
+            ))
+        );
+        assert_eq!(
+            parse_fn("(fn (name age) (print \"Hello\" name age))"),
+            Ok((
+                "",
+                Expr::Fn(
+                    vec![
+                        Expr::Symbol("name".to_string()),
+                        Expr::Symbol("age".to_string())
+                    ],
+                    vec![Expr::List(vec![
+                        Expr::Symbol("print".to_string()),
+                        Expr::Literal(LitKind::Str("Hello".to_string())),
+                        Expr::Symbol("name".to_string()),
+                        Expr::Symbol("age".to_string()),
                     ])]
                 )
             ))
